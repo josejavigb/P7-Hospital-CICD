@@ -45,7 +45,7 @@ public class ImagenController {
             return ResponseEntity.ok(imagenService.getNewPrediccion(id));
         } catch (Exception e) {
             e.printStackTrace();
-            return ResponseEntity.internalServerError().body("Error al realizar la prediccion" + e.getMessage());
+            return ResponseEntity.internalServerError().body("Error inseperado al realizar la prediccion" + e.getMessage());
         }
 
     }
