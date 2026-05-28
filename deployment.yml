@@ -14,8 +14,8 @@ spec:
     spec:
       containers:
       - name: hospital-app
-        image: hospital-app:latest
-        imagePullPolicy: Never
+        image: josejavigb/p7-hospital-cicd:latest
+        imagePullPolicy: Always
         ports:
         - containerPort: 8080
 ---
