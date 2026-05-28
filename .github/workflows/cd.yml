@@ -1,0 +1,85 @@
+name: Docker Build & Push on Github
+
+on:
+  push:
+    branches: [ "main" ]
+    tags: [ 'v*.*.*' ]
+  pull_request:
+    branches: [ "main" ]
+
+env:
+  IMAGE_NAME: ${{ secrets.DOCKERHUB_USERNAME }}/${{ github.event.repository.name }}
+
+jobs:
+  build-and-publish:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log into registry ${{ vars.REGISTRY }}
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ vars.REGISTRY }}
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ vars.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=tag
+            type=sha,format=short
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build and push Docker image
+        id: build-and-push
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          platforms: linux/amd64
+
+  deploy-to-k8s:
+    needs: build-and-publish
+    runs-on: self-hosted
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Update deployment image
+        run: |
+          kubectl set image deployment/${{ vars.DEPLOYMENT_NAME }} `
+            ${{ vars.DEPLOYMENT_NAME }}=${{ vars.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-$($env:GITHUB_SHA.Substring(0,7)) `
+            --namespace=${{ vars.NAMESPACE }}
+
+      - name: Wait for deployment rollout
+        run: |
+          kubectl rollout status deployment/${{ vars.DEPLOYMENT_NAME }} `
+            --namespace=${{ vars.NAMESPACE }} `
+            --timeout=60s
+
+      - name: Verify deployment
+        run: |
+          kubectl get deployment ${{ vars.DEPLOYMENT_NAME }} --namespace=${{ vars.NAMESPACE }}
+          kubectl get pods --namespace=${{ vars.NAMESPACE }}
